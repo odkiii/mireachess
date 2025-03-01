@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { TheChessboard } from "vue3-chessboard";
 import "vue3-chessboard/style.css";
-// import axios from 'axios';
+import axios from 'axios';
 const isGameStarted = ref(false); // Переменная для отслеживания состояния игры
 const selectedDifficulty = ref('1'); // Переменная для хранения выбранного уровня сложности
 
@@ -22,7 +22,9 @@ const currentColor = ref('w');
 function recordMove(move) {
   moveHistory.value.push(move); // Добавляем ход в историю
   currentColor.value = move.color; // Обновляем текущий цвет игрока
-  // sendMoveToGigaChat(move); // Отправляем запрос в GigaChat
+  // +++++++++++++++++++++
+  
+  sendMoveToGigaChat(move); // Отправляем запрос в GigaChat
 
 }
 
@@ -40,46 +42,43 @@ onMounted(() => {
 });
 
 
-// async function sendMoveToGigaChat(move) {
-//   const fen = `${move.after}`; // Замените на актуальный FEN
-//   console.log("move.after = " + move.after)
-//   const moveHistoryString = moveHistory.value.map(m => m.to).join(', '); // Преобразуем историю ходов в строку
+async function sendMoveToGigaChat(move) {
+  const fen = `${move.after}`; // Замените на актуальный FEN
+  console.log("move.after = " + move.after)
+  const moveHistoryString = moveHistory.value.map(m => m.to).join(', '); // Преобразуем историю ходов в строку
 
-//   const prompt = `You are playing ${currentColor.value === 'w' ? 'white' : 'black'} and it is your turn.\n\n` +
-//                  `This is the current state of the game use this to work out where the pieces are on the board:\n\n` +
-//                  `FEN for ${currentColor.value === 'w' ? 'white' : 'black'}: ${fen}\n` +
-//                  `Move History: ${moveHistoryString}\n\n` +
-//                  `Output the best move in SAN format to follow this position. Use the following single blob of JSON. Do not include any other information.\n\n` +
-//                  `{\n  "san": "The move in SAN format",\n  "reason": "Why this is a good move"\n}`;
+  const prompt = `You are playing ${currentColor.value === 'b' ? 'white' : 'black'} and it is your turn.\n\n` +
+                 `This is the current state of the game use this to work out where the pieces are on the board:\n\n` +
+                 `FEN for ${currentColor.value === 'b' ? 'white' : 'black'}: ${fen}\n` +
+                 `Move History: ${moveHistoryString}\n\n` +
+                 `Output the best move in the format (from where to where), for example e7e5 or g8f6 to follow this position. Use the following single blob of JSON. Do not include any other information.\n\n` +
+                 `{\n  "lan": "The move in LAN format",\n  "reason": "Why this is a good move"\n}`;
 
-//   try {
-//     const response = await axios.post('https://gigachat.devices.sberbank.ru/api/v1/chat/completions', {
-//       model: "GigaChat-Pro", // Выберите нужную модель
-//       messages: [
-//         {
-//           role: "user",
-//           content: prompt
-//         }
-//       ],
-//       n: 1,
-//       stream: false,
-//       max_tokens: 512,
-//       repetition_penalty: 1,
-//       update_interval: 0
-//     }, {
-//       headers: {
-//         'Content-Type': 'application/json',
-//         'Authorization': 'Bearer OTAyZjAzNTctMTVhOC00M2YzLTkyMmQtNDY0MzRiMGNhMzQ2OjkxNzlmNGExLTE5YzgtNDUwZS04ZjVhLWE3NDEwNjVlZTlkNQ==' // Замените на ваш токен доступа
-//       }
-//     });
+  try {
+    const response = await axios.post('http://localhost:8000/api/chat',
+        {
+          message: prompt,
+          user_id: "4f7b26d4-2fea-486e-a6fd-375881330ba2"
+        }, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer OTAyZjAzNTctMTVhOC00M2YzLTkyMmQtNDY0MzRiMGNhMzQ2OjkxNzlmNGExLTE5YzgtNDUwZS04ZjVhLWE3NDEwNjVlZTlkNQ==' // Замените на ваш токен доступа
+          }
+    });
 
-//     const bestMove = response.data.choices[0].message.content; // Извлекаем лучший ход из ответа
-//     console.log(bestMove); // Выводим лучший ход в консоль
-//     // Здесь вы можете добавить логику для отображения лучшего хода пользователю
-//   } catch (error) {
-//     console.error("Ошибка при отправке запроса в GigaChat:", error);
-//   }
-// }
+    console.log(response.data);
+
+    const responseData = JSON.parse(response.data.response);
+    console.log(prompt);
+    console.log(responseData);
+    const bestMove = responseData.lan;
+    boardAPI?.move(bestMove);
+    console.log(bestMove) // Выводим лучший ход в консоль
+    // Здесь вы можете добавить логику для отображения лучшего хода пользователю
+  } catch (error) {
+    console.error("Ошибка при отправке запроса в GigaChat:", error);
+  }
+}
 
 
 // let tg = window.Telegram.WebApp;
