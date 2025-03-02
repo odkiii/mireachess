@@ -3,33 +3,53 @@ import { ref, onMounted } from "vue";
 import { TheChessboard } from "vue3-chessboard";
 import "vue3-chessboard/style.css";
 import axios from "axios";
+
 const isGameStarted = ref(false); // Переменная для отслеживания состояния игры
 const selectedDifficulty = ref("1"); // Переменная для хранения выбранного уровня сложности
-
-function startGame() {
-  isGameStarted.value = true; // Изменяем состояние на "игра начата"
-}
-
+const selectedColor = ref("w");
+const moveHistory = [];
 let boardAPI;
-const boardConfig = {
+const boardConfigForWhite = {
   coordinates: true,
+  orientation: "white",
 };
 
-const moveHistory = ref([]); // Переменная для хранения истории ходов
-const currentColor = ref("w");
+async function startGame() {
+  let diff = 1;
+  if (selectedDifficulty.value === "2") {
+    diff = 10;
+  } else if (selectedDifficulty.value === "3") {
+    diff = 20;
+  }
+  console.log(diff);
+  try {
+    const response = await axios.post("http://localhost:8000/api/start", {
+      diff: diff,
+    });
+    console.log(response.data);
+  } catch (error) {
+    console.error("Ошибка при отправке запроса: ", error);
+  }
+  isGameStarted.value = true;
 
-function recordMove(move) {
-  moveHistory.value.push(move); // Добавляем ход в историю
-  currentColor.value = move.color; // Обновляем текущий цвет игрока
-  // +++++++++++++++++++++
+  if (selectedColor.value === "b") {
+    boardAPI?.toggleOrientation();
+    sendMove(boardAPI?.getFen());
+  }
+}
 
-  sendMoveToGigaChat(move); // Отправляем запрос в GigaChat
+function recordMove() {
+  const lastMove = boardAPI?.getLastMove();
+  moveHistory.push(lastMove.lan);
+  console.log(moveHistory);
+  if (lastMove.color === selectedColor.value) {
+    sendMove(lastMove.after);
+  }
 }
 
 function resetGame() {
   boardAPI?.resetBoard();
   moveHistory.value = [];
-  currentColor.value = "w";
 }
 
 onMounted(() => {
@@ -39,60 +59,16 @@ onMounted(() => {
   document.body.appendChild(script);
 });
 
-async function sendMoveToGigaChat(move) {
-  const fen = `${move.after}`;
-  console.log(move); // Замените на актуальный FEN
-  console.log("move.after = " + move.after);
-  const moveHistoryJson = boardAPI?.getHistory(true);
-  let moveHistoryString = "";
-  for (let index = 0; index < moveHistoryJson.length; index++) {
-    const cur = index + 1;
-    moveHistoryString +=
-      cur +
-      ". " +
-      moveHistoryJson[index].from +
-      moveHistoryJson[index].to +
-      " ";
-  }
-  console.log(moveHistoryString); // Преобразуем историю ходов в строку
+async function sendMove(fen) {
+  console.log(boardAPI?.getLastMove());
 
-  const prompt =
-    `Ты играешь в шахматы. Сейчас ты ходишь за ${
-      currentColor.value === "b" ? "белых" : "черных"
-    }\n\n` +
-    // `Вот текущее положение доски в формате FEN: ` +
-    // `${fen}\n` +
-    `История ходов: ${JSON.stringify(moveHistoryString)}\n\n` +
-    `Из этих данных выдай мне ход строго в формате LAN. То есть код ячейки откуда ходишь и куда. Возвращать просто ячейку куда ты сходишь нельзя, обязательно должна быть ячейка откуда ты походил. Из этого верни мне JSON. Не вставляй другую информацию. Не повторяй ходы, которые уже были сделаны ЭТО ОЧЕНЬ ВАЖНО!!! Сравнивай ходы из истории ходов, которую я тебе дал. Доска не переворачивается, то есть король черных находится на 8 строке\n\n` +
-    `{\n  "lan": "Ход строго в формате LAN",\n  "reason": "Почему этот ход хорош"\n}`;
-
+  const prompt = { fen: fen };
   try {
-    const response = await axios.post(
-      "http://localhost:8000/api/chat",
-      {
-        message: prompt,
-        user_id: "4f7b26d4-2fea-486e-a6fd-375881330ba2",
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization:
-            "Bearer OTAyZjAzNTctMTVhOC00M2YzLTkyMmQtNDY0MzRiMGNhMzQ2OjkxNzlmNGExLTE5YzgtNDUwZS04ZjVhLWE3NDEwNjVlZTlkNQ==", // Замените на ваш токен доступа
-        },
-      }
-    );
+    const response = await axios.post("http://localhost:8000/api/move", prompt);
 
-    console.log(response.data);
-
-    const responseData = JSON.parse(response.data.response);
-    console.log(prompt);
-    console.log(responseData);
-    const bestMove = responseData.lan;
-    boardAPI?.move(bestMove);
-    console.log(bestMove); // Выводим лучший ход в консоль
-    // Здесь вы можете добавить логику для отображения лучшего хода пользователю
+    boardAPI?.move(response.data.best_move);
   } catch (error) {
-    console.error("Ошибка при отправке запроса в GigaChat:", error);
+    console.error("Ошибка при отправке запроса: ", error);
   }
 }
 
@@ -124,7 +100,7 @@ async function sendMoveToGigaChat(move) {
       <span v-if="moveHistory.length === 0">Сделайте первый ход!</span>
       <span v-else>
         <span v-for="(move, index) in moveHistory" :key="index"
-          >{{ index + 1 }}. {{ move.to
+          >{{ index + 1 }}. {{ move
           }}<span v-if="index < moveHistory.length - 1">, </span></span
         >
       </span>
@@ -132,13 +108,13 @@ async function sendMoveToGigaChat(move) {
     <div id="board">
       <TheChessboard
         @move="recordMove"
-        :board-config="boardConfig"
+        :board-config="boardConfigForWhite"
         @board-created="(api) => (boardAPI = api)"
       />
       <!-- Слушаем событие хода -->
     </div>
     <div id="status">
-      <div v-if="moveHistory.length === 0">Ходят белые</div>
+      <div v-if="moveHistory === 0">Ходят белые</div>
       <div v-else>Ходят {{ currentColor === "w" ? "чёрные" : "белые" }}</div>
     </div>
     <div className="menu">
@@ -147,8 +123,6 @@ async function sendMoveToGigaChat(move) {
       <button @click="boardAPI?.undoLastMove()">Ход назад</button>
     </div>
   </div>
-
-  <!-- ЗАПРОС В ГПТ : move.after -->
 
   <!-- ТУТ БУДЕТ МЕНЮ ВЫБОРА СЛОЖНОСТИ БОТА И ВСЯКИЕ НАСТРОЙКИ -->
   <div id="start" v-show="!isGameStarted">
@@ -163,9 +137,9 @@ async function sendMoveToGigaChat(move) {
     <h4>
       Сложность бота:
       <select v-model="selectedDifficulty">
-        <option value="1">400 elo</option>
-        <option value="2">1200 elo</option>
-        <option value="3">2500 elo</option>
+        <option value="1">Слабый</option>
+        <option value="2">Средний</option>
+        <option value="3">Сильный</option>
       </select>
     </h4>
 

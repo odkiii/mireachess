@@ -10,7 +10,6 @@ lerna-debug.log*
 node_modules
 .env
 __pycache__
-venv
 package-lock.json
 dist
 dist-ssr

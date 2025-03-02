@@ -1,15 +1,9 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from gigachat import GigaChat
-from gigachat.models import Chat, Messages, MessagesRole
-import requests
-import os
-from dotenv import load_dotenv
-import httpx
-import json
+from stockfish import Stockfish
 
-load_dotenv()
+stockfish = Stockfish(path="stockfish/stockfish-windows-x86-64-avx2")
 
 app = FastAPI()
 
@@ -22,62 +16,30 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-class ChatRequest(BaseModel):
-    message: str
-    user_id: str = None  # Для сохранения контекста диалога
+class move(BaseModel):
+    fen: str
 
-@app.post("/api/chat")
-async def chat_with_gpt(request: ChatRequest):
+class start(BaseModel):
+    diff: int
+
+@app.post("/api/start")
+async def start_game(diff: start):
     try:
-        # Получение Access Token
-        url = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
-        auth_key = "OTAyZjAzNTctMTVhOC00M2YzLTkyMmQtNDY0MzRiMGNhMzQ2OjkxNzlmNGExLTE5YzgtNDUwZS04ZjVhLWE3NDEwNjVlZTlkNQ=="
+        global stockfish
+        stockfish.set_skill_level(diff.diff)
+        return {"message": "Difficult is set"}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-        payload = {
-            'scope': 'GIGACHAT_API_PERS'
-        }
-        headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Accept': 'application/json',
-            'RqUID': '4f7b26d4-2fea-486e-a6fd-375881330ba2',  # Уникальный идентификатор запроса
-            'Authorization': f'Basic {auth_key}'  # Используем ваш секретный ключ
-        }
-
-        async with httpx.AsyncClient(verify=False) as client:  # Отключаем проверку SSL
-            response = await client.post(url, headers=headers, data=payload)
-
-
-        # Проверка на успешное получение токена
-        if response.status_code != 200:
-            raise HTTPException(status_code=401, detail="Failed to obtain access token")
-
-        access_token = response.json().get('access_token')
-
-        # Создаем экземпляр GigaChat с полученным токеном
-        giga = GigaChat(
-            access_token=access_token,
-            verify_ssl_certs=False
-        )
-
-        messages = [
-            Messages(
-                role=MessagesRole.USER,
-                content=request.message
-            )
-        ]
-        chat = Chat(messages=messages)  # Убираем указание модели
-
-        # Отправляем запрос и получаем ответ
-        response = await giga.achat(chat)
-
-        # Проверяем, есть ли ответ
-        if response.choices:
-            lenMyJson = len(response.choices[0].message.content)
-            myJson = response.choices[0].message.content[8:lenMyJson-3]
-            return {"response": myJson}
-        else:
-            return {"response": "Нет ответа от GigaChat."}
-
+@app.post("/api/move")
+async def chat_with_gpt(move: move):
+    try:
+        global stockfish
+        stockfish.set_fen_position(move.fen)
+        best_move = stockfish.get_best_move()
+        return {"best_move": best_move}
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
