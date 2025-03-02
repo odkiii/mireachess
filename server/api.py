@@ -72,7 +72,9 @@ async def chat_with_gpt(request: ChatRequest):
 
         # Проверяем, есть ли ответ
         if response.choices:
-            return {"response": response.choices[0].message.content}
+            lenMyJson = len(response.choices[0].message.content)
+            myJson = response.choices[0].message.content[8:lenMyJson-3]
+            return {"response": myJson}
         else:
             return {"response": "Нет ответа от GigaChat."}
 
