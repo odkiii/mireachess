@@ -22,7 +22,7 @@ const boardConfigForWhite = {
 //Сдаться
 function confirmResign() {
   isResignModalVisible.value = true; // Показываем модальное окно подтверждения
-  handleCheckmate(winner);
+  handleCheckmate(winner.value); // Передаем значение winner
   isResignModalVisible.value = false; // Скрываем модальное окно подтверждения
 }
 
