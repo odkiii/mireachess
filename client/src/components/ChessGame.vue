@@ -3,16 +3,40 @@ import { ref, onMounted } from "vue";
 import { TheChessboard } from "vue3-chessboard";
 import "vue3-chessboard/style.css";
 import axios from "axios";
+import "./styles.css";
 
 const isGameStarted = ref(false); // Переменная для отслеживания состояния игры
 const selectedDifficulty = ref("1"); // Переменная для хранения выбранного уровня сложности
 const selectedColor = ref("w");
-const moveHistory = [];
+const moveHistory = ref([]);
 let boardAPI;
+const isModalVisible = ref(false);
+const isDrawModalVisible = ref(false);
+const isResignModalVisible = ref(false);
+const winner = ref('');
 const boardConfigForWhite = {
   coordinates: true,
   orientation: "white",
 };
+
+//Сдаться
+function confirmResign() {
+  isResignModalVisible.value = true; // Показываем модальное окно подтверждения
+  handleCheckmate(winner.value); // Передаем значение winner
+  isResignModalVisible.value = false; // Скрываем модальное окно подтверждения
+}
+
+//Мат
+function handleCheckmate(isMated) {
+  const winnerColor = isMated === 'w' ? 'Чёрные' : 'Белые';
+  winner.value = winnerColor;
+  isModalVisible.value = true;
+}
+
+//Ничья
+function handleDraw() {
+  isDrawModalVisible.value = true; // Показываем модальное окно ничьей
+}
 
 async function startGame() {
   let diff = 1;
@@ -40,7 +64,7 @@ async function startGame() {
 
 function recordMove() {
   const lastMove = boardAPI?.getLastMove();
-  moveHistory.push(lastMove.lan);
+  moveHistory.value.push(lastMove.lan);
   console.log(moveHistory);
   if (lastMove.color === selectedColor.value) {
     sendMove(lastMove.after);
@@ -50,6 +74,9 @@ function recordMove() {
 function resetGame() {
   boardAPI?.resetBoard();
   moveHistory.value = [];
+  isModalVisible.value = false; // Скрываем модальное окно при сбросе игры
+  isDrawModalVisible.value = false; // Скрываем модальное окно ничьей
+
 }
 
 onMounted(() => {
@@ -69,6 +96,27 @@ async function sendMove(fen) {
     boardAPI?.move(response.data.best_move);
   } catch (error) {
     console.error("Ошибка при отправке запроса: ", error);
+  }
+}
+async function showBestMove() {
+  // Скрываем предыдущие стрелки перед показом новой
+  boardAPI?.hideMoves(); 
+
+  // Получаем текущее состояние доски в формате FEN
+  const fen = boardAPI?.getFen(); 
+
+  try {
+    // Отправляем запрос на сервер для получения лучшего хода
+    const response = await axios.post("http://localhost:8000/api/move", { fen: fen });
+    const bestMove = response.data.best_move;
+
+    if (bestMove) {
+      const orig = bestMove.slice(0, 2); // Начальная позиция
+      const dest = bestMove.slice(2, 4); // Конечная позиция
+      boardAPI?.drawMove(orig, dest, 'green'); // Рисуем стрелку
+    }
+  } catch (error) {
+    console.error("Ошибка при получении лучшего хода:", error);
   }
 }
 
@@ -99,10 +147,7 @@ async function sendMove(fen) {
       </div>
       <span v-if="moveHistory.length === 0">Сделайте первый ход!</span>
       <span v-else>
-        <span v-for="(move, index) in moveHistory" :key="index"
-          >{{ index + 1 }}. {{ move
-          }}<span v-if="index < moveHistory.length - 1">, </span></span
-        >
+        <span v-for="(move, index) in moveHistory" :key="index">{{ index + 1 }}. {{ move }}<span v-if="index < moveHistory.length - 1">, </span></span>
       </span>
     </div>
     <div id="board">
@@ -110,20 +155,49 @@ async function sendMove(fen) {
         @move="recordMove"
         :board-config="boardConfigForWhite"
         @board-created="(api) => (boardAPI = api)"
+        @checkmate="handleCheckmate"
+        @draw="handleDraw"
+
       />
       <!-- Слушаем событие хода -->
     </div>
     <div id="status">
-      <div v-if="moveHistory === 0">Ходят белые</div>
-      <div v-else>Ходят {{ currentColor === "w" ? "чёрные" : "белые" }}</div>
+      <div v-if="moveHistory.length === 0">Ходят белые</div>
+      <div v-else>Ходят {{ selectedColor === "w" ? "чёрные" : "белые" }}</div>
     </div>
     <div className="menu">
       <button @click="boardAPI?.toggleOrientation()">Повернуть доску</button>
       <button @click="resetGame()">Начать сначала</button>
       <button @click="boardAPI?.undoLastMove()">Ход назад</button>
+      <button @click="showBestMove">Помочь с ходом</button>  
+      <button @click="isResignModalVisible = true">Сдаться</button> 
+
+    </div>
+
+        <!-- Модальное окно для конца игры -->
+    <div v-if="isModalVisible" class="modal-overlay">
+      <div class="modal">
+        <h2>{{ winner }} проиграли</h2>
+        <button class="btn-new" @click="resetGame">Начать новую игру</button>
+      </div>
+    </div>
+        <!-- Модальное окно для ничьей -->
+    <div v-if="isDrawModalVisible" class="modal-overlay">
+      <div class="modal">
+        <h2>Ничья!</h2>
+        <button class="btn-new" @click="resetGame">Начать новую игру</button>
+      </div>
+    </div>
+    <!-- Модальное окно для подтверждения сдачи -->
+    <div v-if="isResignModalVisible" class="modal-overlay">
+      <div class="modal">
+        <h2>Вы точно хотите сдаться?</h2>
+        <button class="btn-resign" @click="confirmResign">Да</button>
+        <button class="btn-new" @click="isResignModalVisible = false">Нет</button>
+      </div>
     </div>
   </div>
-
+  
   <!-- ТУТ БУДЕТ МЕНЮ ВЫБОРА СЛОЖНОСТИ БОТА И ВСЯКИЕ НАСТРОЙКИ -->
   <div id="start" v-show="!isGameStarted">
     <h2>Добро пожаловать!</h2>
@@ -145,63 +219,6 @@ async function sendMove(fen) {
 
     <button @click="startGame" id="game">Играть</button>
   </div>
+  
 </template>
 
-<style>
-#main {
-  border: 2px solid red;
-}
-
-#start {
-  border: 2px solid red;
-  padding: 10px;
-  margin: 10px;
-}
-
-#start select {
-  width: 80px;
-  height: 50px;
-}
-
-#board {
-  margin: auto;
-  border: 2px solid black;
-  width: 700px;
-  height: 700px;
-}
-
-.menu {
-  display: grid;
-  grid-template-columns: 33% 33% 33%;
-  margin: auto;
-  width: 400px;
-  height: auto;
-  border: 2px solid black;
-  font-size: 12px;
-}
-
-.menu button {
-  margin: 10px;
-  padding: 5px;
-}
-
-.menu select {
-  margin: 10px;
-  padding: 5px;
-}
-
-#move-history {
-  background-color: rgb(83, 83, 83);
-  width: 704px;
-  margin: 20px;
-  margin-bottom: 0;
-}
-
-#game {
-  border: 0;
-  border-radius: 5px;
-  width: 100px;
-  height: 50px;
-  text-align: center;
-}
-</style>

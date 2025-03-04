@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from stockfish import Stockfish
 
-stockfish = Stockfish(path="stockfish/stockfish-windows-x86-64-avx2")
+#stockfish = Stockfish(path="stockfish/stockfish-windows-x86-64-avx2")
+stockfish = Stockfish(path="/opt/homebrew/Cellar/stockfish/17/bin/stockfish")
 
 app = FastAPI()
 
