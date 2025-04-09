@@ -1,14 +1,15 @@
 <script setup>
-import { ref, onMounted } from "vue";
+import { ref, onMounted, watch, nextTick } from "vue";
 import { TheChessboard } from "vue3-chessboard";
 import "vue3-chessboard/style.css";
 import axios from "axios";
-import "./styles.css";
+import "./styles.css";  
 
-const isGameStarted = ref(false); // Переменная для отслеживания состояния игры
-const selectedDifficulty = ref("1"); // Переменная для хранения выбранного уровня сложности
+const isGameStarted = ref(false);
+const selectedDifficulty = ref("1");
 const selectedColor = ref("w");
 const moveHistory = ref([]);
+const movesContainer = ref(null); // Реф для контейнера ходов
 let boardAPI;
 const isModalVisible = ref(false);
 const isDrawModalVisible = ref(false);
@@ -17,6 +18,39 @@ const winner = ref('');
 const boardConfigForWhite = {
   coordinates: true,
   orientation: "white",
+};
+const API_URL = 'https://mireachessapi.cloudpub.ru/';
+
+
+
+// Улучшенная функция прокрутки
+const scrollToEnd = () => {
+  nextTick(() => {
+    if (!movesContainer.value) return;
+    
+    // Двойная страховка - два способа прокрутки
+    movesContainer.value.scrollTo({
+      left: movesContainer.value.scrollWidth,
+      behavior: 'smooth'
+    });
+    
+    // На случай если smooth не сработает
+    setTimeout(() => {
+      movesContainer.value.scrollLeft = movesContainer.value.scrollWidth;
+    }, 50);
+  });
+};
+
+// Следим за изменениями истории ходов
+watch(moveHistory, scrollToEnd, { deep: true });
+
+// Прокрутка колесиком мыши
+const handleWheel = (e) => {
+  if (movesContainer.value) {
+    movesContainer.value.scrollLeft += e.deltaY;
+    // Отменяем стандартное поведение страницы
+    e.preventDefault();
+  }
 };
 
 //Сдаться
@@ -47,7 +81,7 @@ async function startGame() {
   }
   console.log(diff);
   try {
-    const response = await axios.post("http://localhost:8000/api/start", {
+    const response = await axios.post("https://mireachessapi.cloudpub.ru/api/start", {
       diff: diff,
     });
     console.log(response.data);
@@ -69,6 +103,7 @@ function recordMove() {
   if (lastMove.color === selectedColor.value) {
     sendMove(lastMove.after);
   }
+  scrollToEnd(); 
 }
 
 function resetGame() {
@@ -79,25 +114,38 @@ function resetGame() {
 
 }
 
+const telegram_id = ref(null);
+
 onMounted(() => {
+  if (window.Telegram?.WebApp?.initDataUnsafe?.user) {
+    telegram_id.value = Telegram.WebApp.initDataUnsafe.user.id;
+    console.log("Telegram ID установлен:", telegram_id.value);
+  } else {
+    telegram_id.value = 0;  // Заглушка для локального тестирования
+    console.warn("Telegram WebApp не обнаружен. Используется test ID.");
+  }
   const script = document.createElement("script");
   script.src = "https://telegram.org/js/telegram-web-app.js";
   script.async = true;
   document.body.appendChild(script);
+  // нужная часть или нет ?
 });
 
+
 async function sendMove(fen) {
-  console.log(boardAPI?.getLastMove());
-
-  const prompt = { fen: fen };
+  console.log("Отправка хода:", fen, "Telegram ID:", telegram_id.value);
+  
   try {
-    const response = await axios.post("http://localhost:8000/api/move", prompt);
-
+    const response = await axios.post("https://mireachessapi.cloudpub.ru/api/move", {
+      fen: fen,
+      telegram_id: telegram_id.value || 0,  // 0 для тестов, если нет Telegram
+    });
     boardAPI?.move(response.data.best_move);
   } catch (error) {
-    console.error("Ошибка при отправке запроса: ", error);
+    console.error("Ошибка при отправке хода:", error.response?.data || error.message);
   }
 }
+
 async function showBestMove() {
   // Скрываем предыдущие стрелки перед показом новой
   boardAPI?.hideMoves(); 
@@ -107,12 +155,13 @@ async function showBestMove() {
 
   try {
     // Отправляем запрос на сервер для получения лучшего хода
-    const response = await axios.post("http://localhost:8000/api/move", { fen: fen });
+    // const response = await axios.post("http://localhost:8000/api/move", { fen: fen });
+    const response = await axios.post("https://mireachessapi.cloudpub.ru/api/move", { fen: fen });
     const bestMove = response.data.best_move;
 
     if (bestMove) {
-      const orig = bestMove.slice(0, 2); // Начальная позиция
-      const dest = bestMove.slice(2, 4); // Конечная позиция
+      const orig = bestMove.slice(0, 2); // начальная позиция
+      const dest = bestMove.slice(2, 4); // конечная позиция
       boardAPI?.drawMove(orig, dest, 'green'); // Рисуем стрелку
     }
   } catch (error) {
@@ -120,22 +169,10 @@ async function showBestMove() {
   }
 }
 
-// let tg = window.Telegram.WebApp;
-// let game = document.getElementById("game");
 
-// game.addEventListener("click", () => {
-//   document.getElementById("main").style.display == "none";
-//   document.getElementById("menu").style.display == "block";
-// });
+
 </script>
-<!-- // name: 'MyComponent',
-  // mounted() {
-  //   const script = document.createElement('script');
-  //   script.src = "https://telegram.org/js/telegram-web-app.js";
-  //   script.async = true;
-  //   document.body.appendChild(script);
-  // },
-   -->
+
 
 <template title>
   <div id="main" v-show="isGameStarted">
@@ -145,10 +182,13 @@ async function showBestMove() {
         <p>Выбранный цвет: {{ selectedColor === "w" ? "белые" : "чёрные" }}</p>
         <p>Уровень сложности: {{ selectedDifficulty }}</p>
       </div>
-      <span v-if="moveHistory.length === 0">Сделайте первый ход!</span>
+      <div id="moves" ref="moves" @wheel.prevent="handleWheel">
+        <span v-if="moveHistory.length === 0">Сделайте первый ход!</span>
       <span v-else>
         <span v-for="(move, index) in moveHistory" :key="index">{{ index + 1 }}. {{ move }}<span v-if="index < moveHistory.length - 1">, </span></span>
       </span>
+    </div>
+      
     </div>
     <div id="board">
       <TheChessboard
@@ -200,7 +240,10 @@ async function showBestMove() {
   
   <!-- ТУТ БУДЕТ МЕНЮ ВЫБОРА СЛОЖНОСТИ БОТА И ВСЯКИЕ НАСТРОЙКИ -->
   <div id="start" v-show="!isGameStarted">
-    <h2>Добро пожаловать!</h2>
+    <h2>
+      Добро пожаловать!
+      <MireaChess :telegram_id="telegram_id" />
+    </h2>
     <h4>
       За кого играете:
       <select v-model="selectedColor">

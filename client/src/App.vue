@@ -4,7 +4,7 @@ import MireaChess from './components/ChessGame.vue'
 
 <template>
 
-  <MireaChess msg="MireaChess" />
+  <MireaChess/>
 </template>
 
 <style scoped>

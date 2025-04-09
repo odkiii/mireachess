@@ -19,6 +19,9 @@
     width: 700px;
     height: 700px;
   }
+
+
+
   
   .menu {
     display: grid;
@@ -46,6 +49,9 @@
     margin: 20px;
     margin-bottom: 0;
   }
+  
+  
+
   
   #game {
     border: 0;
